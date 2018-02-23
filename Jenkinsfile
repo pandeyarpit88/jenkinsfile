@@ -1,39 +1,32 @@
-import java.text.SimpleDateFormat;
-
-// This pipeline expects a paramater newcolor which will set the newcolor of the newly deployed application.
-
 node {
-  // Blue/Green Deployment into Production
-  // -------------------------------------
-  def project  = "cicd-dev"
-  def project1 = "spring-v1"
-  def project2 = "spring-v3"
-  def dest     = project2
-  def active   = ""
-  def route    = project1
-
-  stage('Determine Deployment route') {  
-    // Determine currently active Service
-    sh "oc get route ${route} -n ${project} -o jsonpath='{ .spec.to.name }' > activesvc.txt"   
-    active = readFile('activesvc.txt').trim()
-    if (active == project2) {
-      dest = project1
-    }
-  }
-  stage('Deploy new Version') {
-    echo "oc start-build ${dest}"
-	  // sh "oc start-build ${dest}"
-    openshiftBuild bldCfg: dest, namespace: project, showBuildLogs: 'true'
-    // openshiftVerifyBuild bldCfg: dest, namespace: project, verbose: 'false', waitTime: '780', waitUnit: 'sec'
-    openshiftDeploy depCfg: dest, namespace: project, verbose: 'false', waitTime: '780', waitUnit: 'sec'
-    openshiftVerifyDeployment depCfg: dest, namespace: project, replicaCount: '1', verbose: 'false', verifyReplicaCount: 'true', waitTime: '780', waitUnit: 'sec'
-    openshiftVerifyService namespace: project, svcName: dest, verbose: 'false'
-  }
-  stage('Switch over to new Version') {
-    // input "Switch Production?"
-    sh 'oc patch route ' + ${project1} + ' -p \'{"spec":{"to":{"name":"' + dest + '"}}}\''
-    sh 'oc get route ' + ${project1} + ' > oc_out.txt'
-    oc_out = readFile('oc_out.txt')
-    echo "Current route configuration: " + oc_out
-  }
+   def mvnHome
+   stage('Preparation') { // for display purposes
+      // Get some code from a GitHub repository
+      git 'https://github.com/pandeyarpit88/jenkinsfile.git'
+      // Get the Maven tool.
+      // ** NOTE: This 'M3' Maven tool must be configured
+      // **       in the global configuration.           
+      mvnHome = tool 'M3'
+   }
+   stage('Build') {
+      // Run the maven build
+      if (isUnix()) {
+         sh "'${mvnHome}/bin/mvn' -Dmaven.test.failure.ignore clean package"
+      } else {
+         bat(/"${mvnHome}\bin\mvn" -Dmaven.test.failure.ignore clean package/)
+      }
+   }
+   stage('Results') {
+      junit '**/target/surefire-reports/TEST-*.xml'
+      archive 'target/*.jar'
+   }
+   stage('OC Setup') {
+        if (isUnix()) {
+            sh 'oc login https://10.0.75.2:8443 --token=vgQwR6O5KxT-kVnuT8QpRSlAqM8pzrNmH8TkAAOT6AA'
+            sh 'oc projects | grep spring-jenkins'
+            
+        } else {
+            sh 'echo "windows machine "'
+        }
+   }
 }
